@@ -58,8 +58,8 @@ if(BUILD_TESTS)
     gtest_discover_tests(RunTest)
 endif()
 set(CPACK_PACKAGE_NAME "${PROJECT_NAME}")
-set(CPACK_PACKAGE_VENDOR "tyrtir")
-set(CPACK_PACKAGE_CONTACT "mihailokrivov@yandex.ru")
+set(CPACK_PACKAGE_VENDOR "mursulov")
+set(CPACK_PACKAGE_CONTACT "maks10122003m@gmail.com")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PROJECT_DESCRIPTION}")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
@@ -75,7 +75,7 @@ if(WIN32)
     set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE.rtf")
 else()
     set(CPACK_GENERATOR "TGZ;DEB;RPM")
-    set(CPACK_DEBIAN_PACKAGE_MAINTAINER "tyrtir <mihailokrivov@yandex.ru>")
+    set(CPACK_DEBIAN_PACKAGE_MAINTAINER "tyrtir <maks10122003m@gmail.co>")
     set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "amd64")
 endif()
 
@@ -83,132 +83,175 @@ include(InstallRequiredSystemLibraries)
 include(CPack)
 ```
 
-## Изменям main.yml
+## Изменям build.yml
 ```
-name: Build and Test
+name: Build (Linux & Windows)
 
 on:
   push:
-    branches: [ master ]
+    branches: [main, master]
   pull_request:
-    branches: [ master ]
+    branches: [main, master]
 
 jobs:
   linux-build:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-        
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential cmake dpkg-dev rpm lcov
-    
-    - name: Configure project
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
-      
-    - name: Build project
-      run: cmake --build build --config Release --parallel $(nproc)
-      
-    - name: Run tests
-      run: |
-        cd build
-        ctest --output-on-failure
-        
-    - name: Generate coverage report
-      if: success() && matrix.coverage == 'ON'
-      run: |
-        lcov --capture --directory . --output-file coverage.info
-        lcov --remove coverage.info '/usr/*' --output-file coverage.info
-        genhtml coverage.info --output-directory coverage_report
-        
-    - name: Create packages
-      run: |
-        cd build
-        cpack -G TGZ
-        cpack -G DEB
-        cpack -G RPM
-        
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: linux-packages
-        path: |
-          build/*.tar.gz
-          build/*.deb
-          build/*.rpm
-          build/coverage_report/**
-
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake dpkg-dev rpm
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
+      - name: Build
+        run: cmake --build build --config Release --parallel $(nproc)
+      - name: Run tests
+        run: |
+          cd build
+          ctest --output-on-failure
+      - name: Create packages
+        run: |
+          cd build
+          cpack -G TGZ
+          cpack -G DEB
+          cpack -G RPM
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            build/*.tar.gz
+            build/*.deb
+            build/*.rpm
 
   windows-build:
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Setup WiX
-      run: |
-        choco install wixtoolset -y
-        echo "WIX=C:\Program Files (x86)\WiX Toolset v3.11\bin" >> $GITHUB_ENV
-        
-    - name: Prepare license
-      shell: pwsh
-      run: |
-        if (!(Test-Path "LICENSE.rtf")) {" " | Out-File -Encoding ASCII "LICENSE.rtf"}
-    
-    - name: Configure and build
-      run: |
-        cmake -B build -DCMAKE_BUILD_TYPE=Release
-        cmake --build build --config Release
-        
-    - name: Generate MSI
-      run: |
-        cd build
-        cpack -G WIX -C Release -V --debug
-        
-    - name: List Windows packages
-      shell: pwsh
-      run: |
-        ls build/*.msi -File | % { $_.FullName }
-        if (!(Test-Path "build/*.msi")) { Write-Output "No MSI package found" }
-        
-    - name: Upload Windows packages
-      uses: actions/upload-artifact@v4
-      with:
-        name: windows-packages
-        path: build/*.msi
-        if-no-files-found: warn
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Setup WiX
+        run: |
+          choco install wixtoolset -y
+          echo "WIX=C:\Program Files (x86)\WiX Toolset v3.11\bin" >> $env:GITHUB_ENV
+      - name: Prepare license
+        shell: pwsh
+        run: |
+          if (!(Test-Path "LICENSE.rtf")) { " " | Out-File -Encoding ASCII "LICENSE.rtf" }
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release
+      - name: Generate MSI
+        run: |
+          cd build
+          cpack -G WIX -C Release -V --debug
+      - name: Upload Windows packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-packages
+          path: build/*.msi
+          if-no-files-found: warn
 
-  macos-build:
+```
+## Создаем release.yml
+```
+name: Release Build
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build-linux:
+    name: Build on Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake dpkg-dev rpm
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release --parallel $(nproc)
+      - name: Package
+        run: |
+          cd build
+          cpack -G TGZ
+          cpack -G DEB
+          cpack -G RPM
+      - name: Upload Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-release
+          path: |
+            build/*.tar.gz
+            build/*.deb
+            build/*.rpm
+
+  build-windows:
+    name: Build on Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Setup WiX
+        run: |
+          choco install wixtoolset -y
+          echo "WIX=C:\Program Files (x86)\WiX Toolset v3.11\bin" >> $env:GITHUB_ENV
+      - name: Prepare license
+        shell: pwsh
+        run: |
+          if (!(Test-Path "LICENSE.rtf")) { " " | Out-File -Encoding ASCII "LICENSE.rtf" }
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release
+      - name: Package
+        run: |
+          cd build
+          cpack -G WIX -C Release -V --debug
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: build/*.msi
+          if-no-files-found: warn
+
+  build-macos:
+    name: Build on macOS
     runs-on: macos-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-    - name: Configure project
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
-    - name: Build project
-      run: cmake --build build --config Release --parallel 2
-    - name: Run tests
-      run: |
-        cd build
-        ctest --output-on-failure
-    - name: Create DMG package
-      run: |
-        cd build
-        cpack -G DragNDrop
-        
-    - name: List macOS packages
-      run: |
-        ls -la build/*.dmg || echo "No DMG package found"
-        
-    - name: Upload macOS packages
-      uses: actions/upload-artifact@v4
-      with:
-        name: macos-packages
-        path: build/*.dmg
-        if-no-files-found: warn
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release --parallel 2
+      - name: Package
+        run: |
+          cd build
+          cpack -G DragNDrop
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-release
+          path: build/*.dmg
+          if-no-files-found: warn
+
 ```
+
+
+
+
+
+
