@@ -1,70 +1,49 @@
-name: Build (Linux & Windows)
+name: CMake Build and Test
 
 on:
   push:
-    branches: [main, master]
+    branches: [ master ]
   pull_request:
-    branches: [main, master]
+    branches: [ master ]
+
+env:
+  BUILD_TYPE: Release
 
 jobs:
-  linux-build:
+  build:
     runs-on: ubuntu-latest
+    
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake dpkg-dev rpm
-      - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
-      - name: Build
-        run: cmake --build build --config Release --parallel $(nproc)
-      - name: Run tests
-        run: |
-          cd build
-          ctest --output-on-failure
-      - name: Create packages
-        run: |
-          cd build
-          cpack -G TGZ
-          cpack -G DEB
-          cpack -G RPM
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-packages
-          path: |
-            build/*.tar.gz
-            build/*.deb
-            build/*.rpm
+    - uses: actions/checkout@v2
 
-  windows-build:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: Setup WiX
-        run: |
-          choco install wixtoolset -y
-          echo "WIX=C:\Program Files (x86)\WiX Toolset v3.11\bin" >> $env:GITHUB_ENV
-      - name: Prepare license
-        shell: pwsh
-        run: |
-          if (!(Test-Path "LICENSE.rtf")) { " " | Out-File -Encoding ASCII "LICENSE.rtf" }
-      - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
-      - name: Build
-        run: cmake --build build --config Release
-      - name: Generate MSI
-        run: |
-          cd build
-          cpack -G WIX -C Release -V --debug
-      - name: Upload Windows packages
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-packages
-          path: build/*.msi
-          if-no-files-found: warn
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake
+
+    - name: Create Build Directory
+      run: mkdir -p build
+
+    - name: Configure CMake
+      working-directory: ./build
+      run: cmake .. -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+
+    - name: Build
+      working-directory: ./build
+      run: cmake --build . --config ${{ env.BUILD_TYPE }}
+
+    - name: Run Hello World Test
+      working-directory: ./build
+      run: |
+        ./hello_world_application/hello_world | grep -q "hello, world!"
+        echo "Hello World test passed!"
+
+    - name: Run Solver Test
+      working-directory: ./build
+      run: |
+        echo "Testing equation solver:"
+        OUTPUT=$(./solver_application/solver <<< "1 0 -25")
+        echo "$OUTPUT"
+        echo "$OUTPUT" | grep -q "x1 = -5.00000" || (echo "x1 test failed"; exit 1)
+        echo "$OUTPUT" | grep -q "x2 = 5.00000" || (echo "x2 test failed"; exit 1)
+        echo "Solver test passed!"
